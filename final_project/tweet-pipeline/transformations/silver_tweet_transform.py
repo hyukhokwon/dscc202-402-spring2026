@@ -33,6 +33,11 @@
 # - pyspark.sql.types and pyspark.sql.functions
 # - re module for regex operations
 
+import pyspark.pipelines as dp
+from pyspark.sql.types import *
+from pyspark.sql.functions import *
+
+import re
 
 # COMMAND ----------
 
@@ -45,6 +50,10 @@
 
 # TODO: Create streaming table definition
 
+dp.create_streaming_table(
+    name="tweets_silver",
+    comment="Cleaned tweets with extracted mentions and parsed timestamps"
+)
 
 # COMMAND ----------
 
@@ -63,6 +72,12 @@
 
 # TODO: Define find_mentions function and create UDF
 
+def find_mentions(text):
+    if text is None:
+        return []
+    return re.findall(r"@[\w]+", text)
+
+find_mentions_udf = udf(find_mentions, ArrayType(StringType()))
 
 # COMMAND ----------
 
@@ -84,6 +99,39 @@
 
 # TODO: Define append_flow function for silver transformation
 
+@dp.append_flow(target="tweets_silver")
+def silver_transform():
+    df = spark.readStream.table("tweets_bronze")
+
+    return (
+        df
+        # Extract mentions
+        .withColumn("mentions", find_mentions_udf(col("text")))
+
+        # Clean text (remove mentions)
+        .withColumn("cleaned_text", regexp_replace(col("text"), "@\\S+", ""))
+
+        # Explode mentions (preserve nulls)
+        .withColumn("mention", explode_outer(col("mentions")))
+
+        # Normalize mentions to lowercase
+        .withColumn("mention", lower(col("mention")))
+
+        # Convert date to timestamp
+        .withColumn(
+            "timestamp",
+            to_timestamp(col("date"), "EEE MMM dd HH:mm:ss zzz yyyy")
+        )
+
+        # Select final columns
+        .select(
+            "timestamp",
+            "mention",
+            "cleaned_text",
+            "text",
+            "sentiment"
+        )
+    )
 
 # COMMAND ----------
 

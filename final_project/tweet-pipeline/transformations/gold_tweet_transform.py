@@ -1,4 +1,8 @@
 # Databricks notebook source
+# MAGIC %pip install transformers==4.35.2 torch torchvision
+
+# COMMAND ----------
+
 # MAGIC %md
 # MAGIC # Gold Layer: ML Inference for Sentiment Prediction
 # MAGIC
@@ -36,6 +40,10 @@
 # - pyspark.sql.types and pyspark.sql.functions
 # - mlflow for model loading
 
+import pyspark.pipelines as dp
+from pyspark.sql.types import *
+from pyspark.sql.functions import *
+import mlflow
 
 # COMMAND ----------
 
@@ -48,6 +56,10 @@
 
 # TODO: Create streaming table definition
 
+dp.create_streaming_table(
+    name="tweets_gold",
+    comment="Tweets enriched with ML sentiment predictions and confidence scores"
+)
 
 # COMMAND ----------
 
@@ -60,6 +72,8 @@
 # COMMAND ----------
 
 # TODO: Configure MLflow registry
+
+mlflow.set_registry_uri("databricks-uc")
 
 
 # COMMAND ----------
@@ -75,6 +89,10 @@
 
 # TODO: Define model output schema
 
+model_schema = StructType([
+    StructField("label", StringType(), True),
+    StructField("score", DoubleType(), True)
+])
 
 # COMMAND ----------
 
@@ -91,6 +109,13 @@
 
 # TODO: Load model and create Spark UDF
 
+model_uri = "models:/workspace.default.small_sentiment_model/1"
+
+model_udf = mlflow.pyfunc.spark_udf(
+    spark,
+    model_uri,
+    result_type=model_schema
+)
 
 # COMMAND ----------
 
@@ -116,6 +141,54 @@
 
 # TODO: Define append_flow function for gold transformation
 
+@dp.append_flow(target="tweets_gold")
+def gold_transform():
+
+    df = spark.readStream.table("tweets_silver")
+
+    return (
+        df
+
+        # Apply ML model to cleaned text
+        .withColumn("prediction", model_udf(col("cleaned_text")))
+
+        # Extract label and score
+        .withColumn("predicted_label", col("prediction.label"))
+        .withColumn("predicted_score", col("prediction.score") * 100)
+
+        # Map labels (3-class model)
+        .withColumn(
+            "predicted_sentiment",
+            when(col("predicted_label") == "LABEL_0", "negative")
+            .when(col("predicted_label") == "LABEL_1", "neutral")
+            .when(col("predicted_label") == "LABEL_2", "positive")
+        )
+
+        # Ground truth binary sentiment (negative = 0, else 1)
+        .withColumn(
+            "sentiment_id",
+            when(col("sentiment") == "negative", 0).otherwise(1)
+        )
+
+        # Predicted binary sentiment (negative = 0, else 1)
+        .withColumn(
+            "predicted_sentiment_id",
+            when(col("predicted_sentiment") == "negative", 0).otherwise(1)
+        )
+
+        # Select final output columns (9 total)
+        .select(
+            "timestamp",
+            "mention",
+            "cleaned_text",
+            "text",
+            "sentiment",
+            "predicted_sentiment",
+            "predicted_score",
+            "sentiment_id",
+            "predicted_sentiment_id"
+        )
+    )
 
 # COMMAND ----------
 

@@ -1,4 +1,8 @@
 # Databricks notebook source
+# /// script
+# [tool.databricks.environment]
+# environment_version = "5"
+# ///
 # MAGIC %sql
 # MAGIC DROP VOLUME IF EXISTS workspace.default.checkpoints;
 # MAGIC
@@ -102,8 +106,8 @@ print(f"=" * 70)
 client = MlflowClient()
 try:
     model_versions = client.search_model_versions(f"name='{UC_MODEL_NAME}'")
-    #for mv in model_versions:
-    #    print(f"Version: {mv.version}, Status: {mv.status}, Description: {mv.description}")
+    for mv in model_versions:
+       print(f"Version: {mv.version}, Status: {mv.status}, Description: {mv.description}")
 
     print(f"\n✅ Model registered successfully in Unity Catalog!")
     print(f"   Name: {model_versions[0].name}")
@@ -137,3 +141,7 @@ mlflow.models.predict(
     input_data=input_data,
     env_manager="uv",
 )
+
+# COMMAND ----------
+
+
