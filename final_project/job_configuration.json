@@ -1,0 +1,57 @@
+{
+  "name": "Job",
+  "email_notifications": {
+    "no_alert_for_skipped_runs": true
+  },
+  "webhook_notifications": {},
+  "notification_settings": {
+    "no_alert_for_skipped_runs": true,
+    "no_alert_for_canceled_runs": false
+  },
+  "timeout_seconds": 0,
+  "schedule": {
+    "quartz_cron_expression": "16 0 2 * * ?",
+    "timezone_id": "America/New_York",
+    "pause_status": "UNPAUSED"
+  },
+  "max_concurrent_runs": 1,
+  "tasks": [
+    {
+      "task_key": "Run_Pipeline",
+      "run_if": "ALL_SUCCESS",
+      "pipeline_task": {
+        "pipeline_id": "39617c14-3bfb-4904-841e-6bc79b5aa5da",
+        "full_refresh": false
+      },
+      "timeout_seconds": 0,
+      "email_notifications": {
+        "on_failure": [
+          "hyukho.63@gmail.com"
+        ]
+      },
+      "notification_settings": {
+        "no_alert_for_skipped_runs": false,
+        "no_alert_for_canceled_runs": false,
+        "alert_on_last_attempt": false
+      },
+      "webhook_notifications": {}
+    },
+    {
+      "task_key": "Refresh_Dashboard",
+      "depends_on": [
+        {
+          "task_key": "Run_Pipeline"
+        }
+      ],
+      "run_if": "ALL_SUCCESS",
+      "dashboard_task": {
+        "subscription": {},
+        "dashboard_id": "01f13d027424142cbdf17a3b547545b7"
+      },
+      "timeout_seconds": 0,
+      "email_notifications": {},
+      "webhook_notifications": {}
+    }
+  ],
+  "performance_target": "PERFORMANCE_OPTIMIZED"
+}

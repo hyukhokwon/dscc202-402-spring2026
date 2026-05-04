@@ -1,4 +1,8 @@
 # Databricks notebook source
+# /// script
+# [tool.databricks.environment]
+# environment_version = "5"
+# ///
 # MAGIC %md
 # MAGIC # Sentiment Model Performance Analysis
 # MAGIC
@@ -32,8 +36,7 @@
 # - sklearn.metrics (confusion_matrix, classification_report, ConfusionMatrixDisplay)
 
 
-from pyspark.sql.types import *
-from pyspark.sql.functions import *
+from pyspark.sql import *
 import pandas as pd
 from mlflow import MlflowClient
 from delta.tables import DeltaTable
@@ -54,7 +57,12 @@ from sklearn.metrics import confusion_matrix, classification_report, ConfusionMa
 
 # TODO: Load gold table
 
-df = spark.read.format("delta").table("workspace.default.tweets_gold")
+df = (
+    spark.read.format("delta")
+    .table("tweets_gold")
+    .select("sentiment_id", "predicted_sentiment_id")
+)
+
 
 # COMMAND ----------
 
@@ -74,7 +82,7 @@ df = spark.read.format("delta").table("workspace.default.tweets_gold")
 
 # TODO: Generate classification report
 
-pdf = df.select("sentiment_id", "predicted_sentiment_id").toPandas()
+pdf = df.toPandas()
 
 y_true = pdf["sentiment_id"]
 y_pred = pdf["predicted_sentiment_id"]
@@ -84,8 +92,7 @@ target_names = ["Negative", "Positive"]
 report = classification_report(
     y_true,
     y_pred,
-    labels=[0, 1],
-    target_names=["Negative", "Positive"],
+    target_names=target_names,
     output_dict=True
 )
 
@@ -109,12 +116,12 @@ report = classification_report(
 
 # TODO: Create and display confusion matrix
 
-cm = confusion_matrix(y_true, y_pred, labels=[0, 1])
+cm = confusion_matrix(y_true, y_pred)
 
 # Create display with labels
 disp = ConfusionMatrixDisplay(
     confusion_matrix=cm,
-    display_labels=["Negative", "Positive"]
+    display_labels=target_names
 )
 
 # Plot
@@ -150,38 +157,42 @@ plt.show()
 
 # TODO: Log metrics and artifacts to MLflow
 import mlflow
+import json
 from sklearn.metrics import accuracy_score
 
 mlflow.set_registry_uri("databricks-uc")
 
-history_df = spark.sql("DESCRIBE HISTORY workspace.default.tweets_silver")
-silver_version = history_df.select("version").first()[0]
+history_df = spark.sql("DESCRIBE HISTORY tweets_silver").select("version").collect()
+silver_delta_version = history_df[0]["version"] if history_df else None
 
 mlflow.set_experiment("/Users/hyukho.63@gmail.com/sentiment_analysis")
 
 with mlflow.start_run():
 
-    # -------------------
-    # Log metrics
-    # -------------------
     accuracy = accuracy_score(y_true, y_pred)
     mlflow.log_metric("accuracy", accuracy)
+    mlflow.log_metric("precision_negative", report["Negative"]["precision"])
+    mlflow.log_metric("recall_negative", report["Negative"]["recall"])
+    mlflow.log_metric("f1_negative", report["Negative"]["f1-score"])
 
-    # -------------------
-    # Log parameters
-    # -------------------
+    mlflow.log_metric("precision_positive", report["Positive"]["precision"])
+    mlflow.log_metric("recall_positive", report["Positive"]["recall"])
+    mlflow.log_metric("f1_positive", report["Positive"]["f1-score"])
+
     mlflow.log_param("model_name", "workspace.default.tweet_sentiment_model")
     mlflow.log_param("model_version", 1)
-    mlflow.log_param("silver_delta_version", silver_version)
+    mlflow.log_param("silver_delta_version", silver_delta_version)
 
-    # -------------------
-    # Save & log confusion matrix
-    # -------------------
+    with open("classification_report.json", "w") as f:
+        json.dump(report, f)
+
+    mlflow.log_artifact("classification_report.json")
+
     plt.figure()
     disp.plot()
     plt.title("Confusion Matrix")
-
     plt.savefig("confusion_matrix.png")
+
     mlflow.log_artifact("confusion_matrix.png")
 
 
@@ -212,3 +223,7 @@ with mlflow.start_run():
 # MAGIC **Next Steps**:
 # MAGIC - If accuracy low: Try different model, improve preprocessing
 # MAGIC - If confusion matrix shows bias: Investigate class distribution, confidence thresholds
+
+# COMMAND ----------
+
+

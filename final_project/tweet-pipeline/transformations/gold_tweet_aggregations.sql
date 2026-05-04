@@ -42,31 +42,21 @@
 
 -- TODO: Create materialized view with aggregations
 
--- Create Gold Aggregation Table
-CREATE OR REFRESH LIVE TABLE tweets_gold_aggregated
-COMMENT "Aggregated sentiment metrics per mention from tweets_gold"
-AS
+CREATE OR REFRESH MATERIALIZED VIEW tweets_gold_aggregated AS
 SELECT
-    mention,
+  LOWER(mention) AS mention,
+  COUNT(*) FILTER (WHERE predicted_sentiment = 'positive') AS positive,
+  COUNT(*) FILTER (WHERE predicted_sentiment = 'negative') AS negative,
+  COUNT(*) FILTER (
+    WHERE predicted_sentiment IN ('positive', 'negative')
+  ) AS total,
+  MIN(timestamp) AS min_timestamp,
+  MAX(timestamp) AS max_timestamp
 
-    -- Total number of mentions
-    COUNT(*) AS mention_count,
-
-    -- Average predicted sentiment score
-    AVG(predicted_score) AS avg_predicted_score,
-
-    -- Count of positive/neutral (1) predictions
-    SUM(predicted_sentiment_id) AS positive_or_neutral_count,
-
-    -- Count of negative predictions
-    SUM(CASE WHEN predicted_sentiment_id = 0 THEN 1 ELSE 0 END) AS negative_count
-
-FROM workspace.default.tweets_gold
-
--- Optional: exclude NULL mentions (recommended for cleaner analytics)
+FROM tweets_gold
 WHERE mention IS NOT NULL
-
 GROUP BY mention
+ORDER BY total DESC;
 
 -- COMMAND ----------
 

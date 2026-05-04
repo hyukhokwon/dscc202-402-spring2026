@@ -58,7 +58,7 @@ import mlflow
 
 dp.create_streaming_table(
     name="tweets_gold",
-    comment="Tweets enriched with ML sentiment predictions and confidence scores"
+    comment="Tweets enriched with ML sentiment predictions"
 )
 
 # COMMAND ----------
@@ -109,6 +109,10 @@ model_schema = StructType([
 
 # TODO: Load model and create Spark UDF
 
+# Enable Arrow + increase batch size FIRST
+spark.conf.set("spark.sql.execution.arrow.pyspark.enabled", "true")
+spark.conf.set("spark.sql.execution.arrow.maxRecordsPerBatch", 1000)
+
 model_uri = "models:/workspace.default.small_sentiment_model/1"
 
 model_udf = mlflow.pyfunc.spark_udf(
@@ -140,51 +144,42 @@ model_udf = mlflow.pyfunc.spark_udf(
 # COMMAND ----------
 
 # TODO: Define append_flow function for gold transformation
-
 @dp.append_flow(target="tweets_gold")
 def gold_transform():
 
-    df = spark.readStream.table("tweets_silver")
+    df = spark.readStream.table("tweets_silver").repartition(200)
 
     return (
         df
-
-        # Apply ML model to cleaned text
         .withColumn("prediction", model_udf(col("cleaned_text")))
-
-        # Extract label and score
-        .withColumn("predicted_label", col("prediction.label"))
-        .withColumn("predicted_score", col("prediction.score") * 100)
-
-        # Map labels (3-class model)
+        .withColumn("predicted_label", col("prediction")["label"])
+        .withColumn("predicted_score", col("prediction")["score"] * 100)
         .withColumn(
             "predicted_sentiment",
-            when(col("predicted_label") == "LABEL_0", "negative")
-            .when(col("predicted_label") == "LABEL_1", "neutral")
-            .when(col("predicted_label") == "LABEL_2", "positive")
+            when(col("predicted_label") == "NEGATIVE", "negative")
+            .when(col("predicted_label") == "POSITIVE", "positive")
+            .otherwise(None)
         )
-
-        # Ground truth binary sentiment (negative = 0, else 1)
         .withColumn(
             "sentiment_id",
-            when(col("sentiment") == "negative", 0).otherwise(1)
+            when(col("sentiment") == "0", 0)
+            .when(col("sentiment") == "4", 1)
+            .otherwise(None)
         )
-
-        # Predicted binary sentiment (negative = 0, else 1)
         .withColumn(
             "predicted_sentiment_id",
-            when(col("predicted_sentiment") == "negative", 0).otherwise(1)
+            when(col("predicted_sentiment") == "negative", 0)
+            .when(col("predicted_sentiment") == "positive", 1)
+            .otherwise(None)
         )
-
-        # Select final output columns (9 total)
         .select(
             "timestamp",
             "mention",
             "cleaned_text",
             "text",
             "sentiment",
-            "predicted_sentiment",
             "predicted_score",
+            "predicted_sentiment",
             "sentiment_id",
             "predicted_sentiment_id"
         )

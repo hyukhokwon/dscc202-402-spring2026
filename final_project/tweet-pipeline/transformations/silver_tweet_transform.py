@@ -36,7 +36,6 @@
 import pyspark.pipelines as dp
 from pyspark.sql.types import *
 from pyspark.sql.functions import *
-
 import re
 
 # COMMAND ----------
@@ -105,25 +104,14 @@ def silver_transform():
 
     return (
         df
-        # Extract mentions
+        .withColumn("cleaned_text", regexp_replace(col("text"), r"@\S+", ""))
         .withColumn("mentions", find_mentions_udf(col("text")))
-
-        # Clean text (remove mentions)
-        .withColumn("cleaned_text", regexp_replace(col("text"), "@\\S+", ""))
-
-        # Explode mentions (preserve nulls)
         .withColumn("mention", explode_outer(col("mentions")))
-
-        # Normalize mentions to lowercase
         .withColumn("mention", lower(col("mention")))
-
-        # Convert date to timestamp
         .withColumn(
             "timestamp",
             to_timestamp(col("date"), "EEE MMM dd HH:mm:ss zzz yyyy")
         )
-
-        # Select final columns
         .select(
             "timestamp",
             "mention",
